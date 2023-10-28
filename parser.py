@@ -1,4 +1,5 @@
 #/usr/bin/env python3
+from typing import BinaryIO
 import pprint
 
 # https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
@@ -9,15 +10,15 @@ def prettyprint(dict_var: dict) -> None:
         print(f"{item}: ", end="")
         pp.pprint(value)
 
-def read_as(file, byte_amount, format) -> int | str:
-    read_int = int.from_bytes(file.read(byte_amount), "big")
+def read_as(file: BinaryIO, byte_length: int, format: str) -> int | str:
+    read_int = int.from_bytes(file.read(byte_length), "big")
     if format == "int":
         return read_int
     elif format == "hex":
         return hex(read_int)
     return -1
 
-def parse_constant(const_type: str, file):
+def parse_constant(const_type: str, file: BinaryIO) -> dict:
     parsed_constant = {}
     match const_type:
         case "Methodref" | "Fieldref" | "InterfaceMethodref":
@@ -51,7 +52,7 @@ def parse_constant(const_type: str, file):
             print("Invalid const type: ", const_type)
     return parsed_constant
 
-def parse_attributes(f, count):
+def parse_attributes(f: BinaryIO, count: int):
     parsed_attributes = {}
     for attribute_index in range(count):
         parsed_attribute = {}
@@ -70,6 +71,7 @@ filename = "Example.class"
 def parse_class(filename: str) -> dict:
     parsed_class = {}
     with open(filename, "rb") as f:
+        print(type(f))
         parsed_class["magic"] = read_as(f, 4, "hex") 
         parsed_class["minor_version"] = read_as(f, 2, "int")
         parsed_class["major_version"] = read_as(f, 2, "int")
@@ -120,5 +122,4 @@ def parse_class(filename: str) -> dict:
 parsed_class = parse_class(filename)
 prettyprint(parsed_class)
 for index, attribute in parsed_class["attributes"].items():
-    print("here", attribute["attribute_name_index"])
     print(parsed_class["constant_pool"][attribute["attribute_name_index"]])
