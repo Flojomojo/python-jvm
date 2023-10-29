@@ -1,4 +1,6 @@
 #/usr/bin/env python3
+import binascii
+from io import BytesIO
 from typing import BinaryIO
 import pprint
 
@@ -80,6 +82,14 @@ def parse_attributes(f: BinaryIO, count: int):
         parsed_attributes[attribute_index] = parsed_attribute
     return parsed_attributes
 
+def get_method_by_name(parsed_class: dict, name: str) -> list[dict]:
+    return [method for _, method in parsed_class["methods"].items()
+            if parsed_class["constant_pool"][method["name_index"] - 1]["bytes"] == name]
+
+def get_attributes_by_name(parsed_class, attributes, name: str):
+    return [attribute for _, attribute in attributes.items()
+            if parsed_class["constant_pool"][attribute["attribute_name_index"] - 1]["bytes"] == name]
+
 filename = "Example.class"
 def parse_class(filename: str) -> dict:
     parsed_class = {}
@@ -131,5 +141,27 @@ def parse_class(filename: str) -> dict:
         parsed_class["attributes"] = parse_attributes(f, attributes_count)
     return parsed_class
 
+def parse_code(code: bytes):
+    parsed_code = {}
+    with BytesIO(code) as f:
+        parsed_code["max_stack"] = read_as(f, 2, "int")
+        parsed_code["max_locals"] = read_as(f, 2, "int")
+        code_length = read_as(f, 4, "int")
+        parsed_code["code"] = f.read(code_length).hex()
+        exception_table_length = read_as(f, 2, "int")
+        parsed_code["exception_table"] = read_as(f, exception_table_length, "hex")
+        assert None, "This is does not yet work"
+    return parsed_code
+
 parsed_class = parse_class(filename)
 prettyprint(parsed_class)
+print("===================================================================")
+main = get_method_by_name(parsed_class, "main")
+assert len(main) == 1, "More than one main method"
+[main] = main
+main_code = get_attributes_by_name(parsed_class, main["attribute_info"], "Code")
+assert len(main_code) == 1, "What?"
+[main_code] = main_code
+print(main_code)
+parsed_main_code = parse_code(main_code["info"].encode())
+print(parsed_main_code)
