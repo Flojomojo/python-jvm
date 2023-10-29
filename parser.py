@@ -4,6 +4,24 @@ import pprint
 
 # https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
 
+
+CONSTANT_TYPE_LOOKUP = {7: "Class", 9: "Fieldref", 10: "Methodref", 11: "InterfaceMethodref",
+                        8: "String", 3: "Integer", 4: "Float", 5: "Long", 6: "Double", 12: "NameAndType",
+                        1: "Utf8", 15: "MethodHandle", 16: "MethodType", 18: "InvokeDynamic"}
+
+CLASS_ACCESS_FLAG_LOOKUP = {0x0001: "PUBLIC", 0x0010: "FINAL", 0x0020: "SUPER", 0x0200: "INTERFACE", 0x0400: "ABSTRACT", 
+                      0x1000: "SYNTHETIC", 0x2000: "ANNOTATION", 0x4000: "ENUM"}
+
+FIELD_ACCESS_FLAG_LOOKUP = {0x0001: "PUBLIC", 0x0002: "PRIVATE", 0x0004: "PROTECTED", 0x0008: "STATIC", 0x0010: "FINAL", 
+                           0x0040: "VOLATILE", 0x0080: "TRANSIENT", 0x1000: "SYNTHETIC", 0x4000: "ENUM"}
+
+METHOD_ACCESS_FLAG_LOOKUP = {0x0001: "PUBLIC", 0x0002: "PRIVATE", 0x0004: "PROTECTED", 0x0008: "STATIC", 0x0010: "FINAL",
+                             0x0020: "SYNCHRONIZED", 0x0040: "BRIDGE", 0x0080: "VARARGS", 0x0100: "NATIVE", 0x0400: "ABSTRACT",
+                             0x0800: "STRICT", 0x1000: "SYNTHETIC"}
+
+def get_access_flag(flag: str, flag_lookup: dict):
+    return [name for value, name in flag_lookup.items() if value&int(flag, 16) != 0]
+
 pp = pprint.PrettyPrinter(indent=2)
 def prettyprint(dict_var: dict) -> None:
     for item, value in dict_var.items():
@@ -62,16 +80,10 @@ def parse_attributes(f: BinaryIO, count: int):
         parsed_attributes[attribute_index] = parsed_attribute
     return parsed_attributes
 
-
-CONSTANT_TYPE_LOOKUP = {7: "Class", 9: "Fieldref", 10: "Methodref", 11: "InterfaceMethodref",
-                        8: "String", 3: "Integer", 4: "Float", 5: "Long", 6: "Double", 12: "NameAndType",
-                        1: "Utf8", 15: "MethodHandle", 16: "MethodType", 18: "InvokeDynamic"}
-
 filename = "Example.class"
 def parse_class(filename: str) -> dict:
     parsed_class = {}
     with open(filename, "rb") as f:
-        print(type(f))
         parsed_class["magic"] = read_as(f, 4, "hex") 
         parsed_class["minor_version"] = read_as(f, 2, "int")
         parsed_class["major_version"] = read_as(f, 2, "int")
@@ -86,7 +98,7 @@ def parse_class(filename: str) -> dict:
             parsed_constant["tag"] = current_constant_type
             parsed_constant_pool[constant] = parsed_constant
         parsed_class["constant_pool"] = parsed_constant_pool
-        parsed_class["access_flag"] = read_as(f, 2, "int")
+        parsed_class["access_flag"] = get_access_flag(read_as(f, 2, "hex"), CLASS_ACCESS_FLAG_LOOKUP)
         parsed_class["this_class"] = read_as(f, 2, "int")
         parsed_class["super_class"] = read_as(f, 2, "int")
         interfaces_count = read_as(f, 2, "int")
@@ -95,7 +107,7 @@ def parse_class(filename: str) -> dict:
         parsed_fields = {}
         for field_index in range(fields_count):
             parsed_field = {}
-            parsed_field["access_flag"] = read_as(f, 2, "int")
+            parsed_field["access_flag"] = get_access_flag(read_as(f, 2, "hex"), FIELD_ACCESS_FLAG_LOOKUP)
             parsed_field["name_index"] = read_as(f, 2, "int")
             parsed_field["descriptor_index"] = read_as(f, 2, "int")
             attributes_count = read_as(f, 2, "int")
@@ -107,7 +119,7 @@ def parse_class(filename: str) -> dict:
         parsed_methods = {}
         for method_index in range(methods_count):
             parsed_method = {}
-            parsed_method["access_flag"] = read_as(f, 2, "int")
+            parsed_method["access_flag"] = get_access_flag(read_as(f, 2, "hex"), METHOD_ACCESS_FLAG_LOOKUP)
             parsed_method["name_index"] = read_as(f, 2, "int")
             parsed_method["descriptor_index"] = read_as(f, 2, "int")
             attributes_count = read_as(f, 2, "int")
@@ -121,5 +133,3 @@ def parse_class(filename: str) -> dict:
 
 parsed_class = parse_class(filename)
 prettyprint(parsed_class)
-for index, attribute in parsed_class["attributes"].items():
-    print(parsed_class["constant_pool"][attribute["attribute_name_index"]])
