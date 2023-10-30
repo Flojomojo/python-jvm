@@ -26,7 +26,22 @@ class Opcode(Enum):
     ldc = 0x12
     invokevirtual = 0xb6
     invokestatic = 0xb8
+    iconst_m1 = 0x2
+    iconst_0 = 0x3
+    iconst_1 = 0x4
+    iconst_2 = 0x5
+    iconst_3 = 0x6
+    iconst_4 = 0x7
+    iconst_5 = 0x8
     ret = 0xb1
+    istore_0 = 0x3b
+    istore_1 = 0x3c
+    istore_2 = 0x3d
+    istore_3 = 0x3e
+    iload_0 = 0x1a
+    iload_1 = 0x1b
+    iload_2 = 0x1c
+    iload_3 = 0x3e
 
     @staticmethod
     def get_by_value(hex_num: int):
@@ -55,9 +70,13 @@ class JvmConstantElement(JvmStackElement):
     def get_string_value(self, parsed_class: dict):
         return get_value_from_constant_pool(parsed_class, self.const["string_index"])["bytes"]
 
-class JvmReturnElement(JvmStackElement):
-    pass
+class JvmStoreElement(JvmStackElement):
+    def __init__(self, index: int):
+        self.index = index
 
+class JvmLoadElement(JvmStackElement):
+    def __init__(self, index: int):
+        self.index = index
 
 def get_access_flag(flag: str, flag_lookup: dict):
     return [name for value, name in flag_lookup.items() if value&int(flag, 16) != 0]
@@ -204,6 +223,7 @@ def parse_code(code: bytes):
 
 def exec_code(parsed_class: dict, code: bytes):
     jvm_stack = []
+    local_var_stack = [-1, -1, -1, -1]
     with BytesIO(code) as f:
         while f.tell() < len(code):
             unparsed_opcode = int(read_as(f, 1, "int"))
@@ -225,6 +245,12 @@ def exec_code(parsed_class: dict, code: bytes):
                 case Opcode.ldc:
                     index = read_as(f, 1, "int")
                     jvm_stack.append(JvmConstantElement(get_value_from_constant_pool(parsed_class, index)))
+                case Opcode.iconst_m1 | Opcode.iconst_0 | Opcode.iconst_1 | Opcode.iconst_2 | Opcode.iconst_3 | Opcode.iconst_4 | Opcode.iconst_5:
+                    jvm_stack.append(JvmIntegerElement(opcode.value-3))
+                case Opcode.istore_0 | Opcode.istore_1 | Opcode.istore_2 | Opcode.istore_3:
+                    jvm_stack.append(JvmStoreElement(opcode.value - 59))
+                case Opcode.iload_0 | Opcode.iload_1 | Opcode.iload_2 | Opcode.iload_3:
+                    jvm_stack.append(JvmLoadElement(opcode.value - 26))
                 case Opcode.invokevirtual:
                     index = read_as(f, 2, "int")
                     methodref = get_value_from_constant_pool(parsed_class, index)
@@ -237,20 +263,25 @@ def exec_code(parsed_class: dict, code: bytes):
                     val = None 
                     act = None
                     while len(jvm_stack) > 0:
-                        current_stack_element = jvm_stack.pop()
+                        current_stack_element = jvm_stack.pop(0)
                         match current_stack_element:
+                            case JvmLoadElement():
+                                index = current_stack_element.index
+                                val = local_var_stack[index]
+                            case JvmStoreElement():
+                                index = current_stack_element.index
+                                local_var_stack[index] = val
+                                val = None
                             case JvmConstantElement():
                                 val = current_stack_element.get_string_value(parsed_class)
                             case JvmPrintStreamElement():
                                 act = print
                             case JvmIntegerElement():
                                 val = current_stack_element.val
-                            case JvmReturnElement():
-                                print("return")
                             case other:
                                 raise NotImplementedError(f"Stack element {type(current_stack_element)}")
                         if val != None and act != None:
-                            act(val)
+                            act(f"java: {val}")
                             act = None
                             val = None
                 case Opcode.invokestatic:
@@ -259,7 +290,6 @@ def exec_code(parsed_class: dict, code: bytes):
                     method_name = get_name_from_parsed_class(parsed_class, methodref["name_and_type_index"])
                     exec_method(parsed_class, method_name)
                 case Opcode.ret:
-                    # TODO to this correctly
                     return
                 case other:
                     raise NotImplementedError(f"Unimplemented opcode: {opcode}")
