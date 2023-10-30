@@ -69,8 +69,11 @@ class JvmConstantElement(JvmStackElement):
     def __init__(self, const: any):
         self.const = const
 
-    def get_string_value(self, parsed_class: dict):
-        return get_value_from_constant_pool(parsed_class, self.const["string_index"])["bytes"]
+    def get_bytes_value(self, parsed_class: dict):
+        if self.const["tag"] == "String":
+            return get_value_from_constant_pool(parsed_class, self.const["string_index"])["bytes"]
+        if self.const["tag"] == "Integer":
+            return self.const["bytes"]
 
 class JvmStoreElement(JvmStackElement):
     def __init__(self, index: int):
@@ -293,7 +296,7 @@ def execute_jvm_stack(jvm_stack: list):
                 local_var_stack[index] = val
                 val = None
             case JvmConstantElement():
-                val = current_stack_element.get_string_value(parsed_class)
+                val = current_stack_element.get_bytes_value(parsed_class)
             case JvmPrintStreamElement():
                 act = print
             case JvmIntegerElement():
