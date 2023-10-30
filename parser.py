@@ -43,6 +43,7 @@ class Opcode(Enum):
     iload_2 = 0x1c
     iload_3 = 0x3e
     bipush = 0x10
+    sipush = 0x11
 
     @staticmethod
     def get_by_value(hex_num: int):
@@ -242,6 +243,9 @@ def exec_code(parsed_class: dict, code: bytes):
                         jvm_stack.append(JvmPrintStreamElement())
                     else: 
                         raise NotImplementedError(f"Member {class_name}/{member_name} not implemented")
+                case Opcode.sipush:
+                    bytes = read_as(f, 2, "int")
+                    jvm_stack.append(JvmIntegerElement(bytes))
                 case Opcode.bipush:
                     byte = read_as(f, 1, "int")
                     jvm_stack.append(JvmIntegerElement(byte))
