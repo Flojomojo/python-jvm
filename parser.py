@@ -250,8 +250,10 @@ def exec_code(parsed_class: dict, code: bytes):
                     bytes = read_as(f, 2, "int")
                     jvm_stack.append(JvmIntegerElement(bytes))
                 case Opcode.bipush:
-                    byte = read_as(f, 1, "int")
+                    # This only accounts for -128 < x < 128
+                    byte = int.from_bytes(f.read(1), "big", signed=True)
                     jvm_stack.append(JvmIntegerElement(byte))
+                    print(byte)
                 case Opcode.ldc:
                     index = read_as(f, 1, "int")
                     jvm_stack.append(JvmConstantElement(get_value_from_constant_pool(parsed_class, index)))
