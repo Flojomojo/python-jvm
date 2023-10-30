@@ -42,6 +42,7 @@ class Opcode(Enum):
     iload_1 = 0x1b
     iload_2 = 0x1c
     iload_3 = 0x3e
+    bipush = 0x10
 
     @staticmethod
     def get_by_value(hex_num: int):
@@ -223,7 +224,6 @@ def parse_code(code: bytes):
 
 def exec_code(parsed_class: dict, code: bytes):
     jvm_stack = []
-    local_var_stack = [-1, -1, -1, -1]
     with BytesIO(code) as f:
         while f.tell() < len(code):
             unparsed_opcode = int(read_as(f, 1, "int"))
@@ -242,6 +242,9 @@ def exec_code(parsed_class: dict, code: bytes):
                         jvm_stack.append(JvmPrintStreamElement())
                     else: 
                         raise NotImplementedError(f"Member {class_name}/{member_name} not implemented")
+                case Opcode.bipush:
+                    byte = read_as(f, 1, "int")
+                    jvm_stack.append(JvmIntegerElement(byte))
                 case Opcode.ldc:
                     index = read_as(f, 1, "int")
                     jvm_stack.append(JvmConstantElement(get_value_from_constant_pool(parsed_class, index)))
@@ -260,30 +263,7 @@ def exec_code(parsed_class: dict, code: bytes):
                         raise NotImplementedError(f"Member {class_name}.{member_name} not implemented")
                     if len(jvm_stack) < 2:
                         raise RuntimeError(f"Member {class_name}.{member_name} expected 2 arguments, not {len(jvm_stack)}") 
-                    val = None 
-                    act = None
-                    while len(jvm_stack) > 0:
-                        current_stack_element = jvm_stack.pop(0)
-                        match current_stack_element:
-                            case JvmLoadElement():
-                                index = current_stack_element.index
-                                val = local_var_stack[index]
-                            case JvmStoreElement():
-                                index = current_stack_element.index
-                                local_var_stack[index] = val
-                                val = None
-                            case JvmConstantElement():
-                                val = current_stack_element.get_string_value(parsed_class)
-                            case JvmPrintStreamElement():
-                                act = print
-                            case JvmIntegerElement():
-                                val = current_stack_element.val
-                            case other:
-                                raise NotImplementedError(f"Stack element {type(current_stack_element)}")
-                        if val != None and act != None:
-                            act(f"java: {val}")
-                            act = None
-                            val = None
+                    execute_jvm_stack(jvm_stack)
                 case Opcode.invokestatic:
                     index = read_as(f, 2, "int") 
                     methodref = get_value_from_constant_pool(parsed_class, index)
@@ -293,6 +273,33 @@ def exec_code(parsed_class: dict, code: bytes):
                     return
                 case other:
                     raise NotImplementedError(f"Unimplemented opcode: {opcode}")
+
+def execute_jvm_stack(jvm_stack: list):
+    local_var_stack = [-1, -1, -1, -1]
+    val = None 
+    act = None
+    while len(jvm_stack) > 0:
+        current_stack_element = jvm_stack.pop(0)
+        match current_stack_element:
+            case JvmLoadElement():
+                index = current_stack_element.index
+                val = local_var_stack[index]
+            case JvmStoreElement():
+                index = current_stack_element.index
+                local_var_stack[index] = val
+                val = None
+            case JvmConstantElement():
+                val = current_stack_element.get_string_value(parsed_class)
+            case JvmPrintStreamElement():
+                act = print
+            case JvmIntegerElement():
+                val = current_stack_element.val
+            case other:
+                raise NotImplementedError(f"Stack element {type(current_stack_element)}")
+        if val != None and act != None:
+            act(f"java: {val}")
+            act = None
+            val = None
 
 def exec_method(parsed_class: dict, method_name: str):
     method = get_method_by_name(parsed_class, method_name)
