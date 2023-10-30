@@ -44,6 +44,17 @@ class Opcode(Enum):
     iload_3 = 0x3e
     bipush = 0x10
     sipush = 0x11
+    fstore_0 = 0x43
+    fstore_1 = 0x44
+    fstore_2 = 0x45
+    fstore_3 = 0x46
+    fload_0 = 0x22
+    fload_1 = 0x23
+    fload_2 = 0x24
+    fload_3 = 0x25
+    fconst_0 = 0xb
+    fconst_1 = 0xc
+    fconst_2 = 0xd
 
     @staticmethod
     def get_by_value(hex_num: int):
@@ -56,6 +67,9 @@ class Opcode(Enum):
 class JvmStackElement:
     def __init__(self):
         pass
+
+    def __str__(self):
+        return self.__class__.__name__
 
 class JvmPrintStreamElement(JvmStackElement):
     def __init__(self):
@@ -74,6 +88,9 @@ class JvmConstantElement(JvmStackElement):
             return get_value_from_constant_pool(parsed_class, self.const["string_index"])["bytes"]
         if self.const["tag"] == "Integer":
             return self.const["bytes"]
+        if self.const["tag"] == "Float":
+            return self.const["bytes"]
+        raise NotImplementedError(f"Unkown tag: {self.const['tag']}")
 
 class JvmStoreElement(JvmStackElement):
     def __init__(self, index: int):
@@ -82,6 +99,10 @@ class JvmStoreElement(JvmStackElement):
 class JvmLoadElement(JvmStackElement):
     def __init__(self, index: int):
         self.index = index
+
+class JvmFloatElement(JvmStackElement):
+    def __init__(self, float_val: float):
+        self.val = float_val
 
 def get_access_flag(flag: str, flag_lookup: dict):
     return [name for value, name in flag_lookup.items() if value&int(flag, 16) != 0]
@@ -253,16 +274,22 @@ def exec_code(parsed_class: dict, code: bytes):
                     # This only accounts for -128 < x < 128
                     byte = int.from_bytes(f.read(1), "big", signed=True)
                     jvm_stack.append(JvmIntegerElement(byte))
-                    print(byte)
                 case Opcode.ldc:
                     index = read_as(f, 1, "int")
                     jvm_stack.append(JvmConstantElement(get_value_from_constant_pool(parsed_class, index)))
+                    # TODO floats and doubles https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.4.5
                 case Opcode.iconst_m1 | Opcode.iconst_0 | Opcode.iconst_1 | Opcode.iconst_2 | Opcode.iconst_3 | Opcode.iconst_4 | Opcode.iconst_5:
                     jvm_stack.append(JvmIntegerElement(opcode.value-3))
                 case Opcode.istore_0 | Opcode.istore_1 | Opcode.istore_2 | Opcode.istore_3:
                     jvm_stack.append(JvmStoreElement(opcode.value - 59))
                 case Opcode.iload_0 | Opcode.iload_1 | Opcode.iload_2 | Opcode.iload_3:
                     jvm_stack.append(JvmLoadElement(opcode.value - 26))
+                case Opcode.fstore_0 | Opcode.fstore_1 | Opcode.fstore_2 | Opcode.fstore_3:
+                    jvm_stack.append(JvmStoreElement(opcode.value - 67))
+                case Opcode.fconst_0 | Opcode.fconst_1 | Opcode.fconst_2:
+                    jvm_stack.append(JvmFloatElement(opcode.value - 11))
+                case Opcode.fload_0 | Opcode.fload_1 | Opcode.fload_2 | Opcode.fload_3:
+                    jvm_stack.append(JvmLoadElement(opcode.value - 34))
                 case Opcode.invokevirtual:
                     index = read_as(f, 2, "int")
                     methodref = get_value_from_constant_pool(parsed_class, index)
@@ -302,6 +329,8 @@ def execute_jvm_stack(jvm_stack: list):
             case JvmPrintStreamElement():
                 act = print
             case JvmIntegerElement():
+                val = current_stack_element.val
+            case JvmFloatElement():
                 val = current_stack_element.val
             case other:
                 raise NotImplementedError(f"Stack element {type(current_stack_element)}")
