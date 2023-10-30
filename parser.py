@@ -62,6 +62,9 @@ class JvmReturnElement(JvmStackElement):
 def get_access_flag(flag: str, flag_lookup: dict):
     return [name for value, name in flag_lookup.items() if value&int(flag, 16) != 0]
 
+def get_code_of_method(parsed_class: dict, method: dict):
+    return get_attributes_by_name(parsed_class, method["attribute_info"], "Code")
+
 def get_method_by_name(parsed_class: dict, name: str) -> list[dict]:
     return [method for _, method in parsed_class["methods"].items()
             if parsed_class["constant_pool"][method["name_index"] - 1]["bytes"] == name]
@@ -199,7 +202,7 @@ def parse_code(code: bytes):
         parsed_code["exception_table"] = read_as(f, exception_table_length, "hex")
     return parsed_code
 
-def exec_func(parsed_class: dict, code: bytes):
+def exec_code(parsed_class: dict, code: bytes):
     jvm_stack = []
     with BytesIO(code) as f:
         while f.tell() < len(code):
@@ -252,21 +255,24 @@ def exec_func(parsed_class: dict, code: bytes):
                             val = None
                 case Opcode.invokestatic:
                     index = read_as(f, 2, "int") 
-                    print(get_value_from_constant_pool(parsed_class, index))
-                    raise NotImplementedError("TODO")
+                    methodref = get_value_from_constant_pool(parsed_class, index)
+                    method_name = get_name_from_parsed_class(parsed_class, methodref["name_and_type_index"])
+                    exec_method(parsed_class, method_name)
                 case Opcode.ret:
+                    # TODO to this correctly
                     return
                 case other:
                     raise NotImplementedError(f"Unimplemented opcode: {opcode}")
 
+def exec_method(parsed_class: dict, method_name: str):
+    method = get_method_by_name(parsed_class, method_name)
+    assert len(method) == 1, f"Could not find method {method_name}"
+    [method] = method
+    code = get_code_of_method(parsed_class, method)
+    assert len(code) == 1, f"What?"
+    [code] = code
+    parsed_code = parse_code(code["info"])
+    exec_code(parsed_class, parsed_code["code"])
+
 parsed_class = parse_class(filename)
-prettyprint(parsed_class)
-print("===================================================================")
-main = get_method_by_name(parsed_class, "main")
-assert len(main) == 1, "More than one main method"
-[main] = main
-main_code = get_attributes_by_name(parsed_class, main["attribute_info"], "Code")
-assert len(main_code) == 1, "What?"
-[main_code] = main_code
-parsed_main_code = parse_code(main_code["info"])
-exec_func(parsed_class, parsed_main_code["code"])
+exec_method(parsed_class, "main")
