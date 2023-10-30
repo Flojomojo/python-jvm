@@ -1,5 +1,6 @@
 # python-jvm
-A simple jvm impletation done in python
+A simple jvm implentation done in python
+! NOT FULLY IMPLEMENTED, JUST SOME FEATURES !
 
 # Usage
 1. Compile your own .java to a .class (or use the provided Example.class) via `javac YourFile.java`
