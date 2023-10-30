@@ -1,8 +1,8 @@
 #/usr/bin/env python3
-import binascii
 from io import BytesIO
 from typing import BinaryIO
 import pprint
+from enum import Enum
 
 # https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
 
@@ -21,8 +21,62 @@ METHOD_ACCESS_FLAG_LOOKUP = {0x0001: "PUBLIC", 0x0002: "PRIVATE", 0x0004: "PROTE
                              0x0020: "SYNCHRONIZED", 0x0040: "BRIDGE", 0x0080: "VARARGS", 0x0100: "NATIVE", 0x0400: "ABSTRACT",
                              0x0800: "STRICT", 0x1000: "SYNTHETIC"}
 
+class Opcode(Enum):
+    getstatic = 0xb2
+    ldc = 0x12
+    invokevirtual = 0xb6
+    invokestatic = 0xb8
+    ret = 0xb1
+
+    @staticmethod
+    def get_by_value(hex_num: int):
+        for op in Opcode:
+            print(op.value, hex_num)
+            if op.value == hex_num:
+                return op
+        raise NotImplementedError("Opcode not implemented")
+
+class JvmStackElement:
+    def __init__(self):
+        pass
+
+class JvmPrintStreamElement(JvmStackElement):
+    def __init__(self):
+        pass
+
+class JvmIntegerElement(JvmStackElement):
+    def __init__(self, value: int):
+        self.val = value
+
+class JvmConstantElement(JvmStackElement):
+    def __init__(self, const: any):
+        self.const = const
+
+    def get_string_value(self, parsed_class: dict):
+        return get_value_from_constant_pool(parsed_class, self.const["string_index"])["bytes"]
+
+class JvmReturnElement(JvmStackElement):
+    pass
+
+
 def get_access_flag(flag: str, flag_lookup: dict):
     return [name for value, name in flag_lookup.items() if value&int(flag, 16) != 0]
+
+def get_method_by_name(parsed_class: dict, name: str) -> list[dict]:
+    return [method for _, method in parsed_class["methods"].items()
+            if parsed_class["constant_pool"][method["name_index"] - 1]["bytes"] == name]
+
+def get_attributes_by_name(parsed_class: dict, attributes: dict, name: str):
+    return [attribute for _, attribute in attributes.items()
+            if parsed_class["constant_pool"][attribute["attribute_name_index"] - 1]["bytes"] == name]
+
+def get_value_from_constant_pool(parsed_class: dict, index: int) -> any:
+    return parsed_class["constant_pool"][index - 1]
+
+def get_name_from_parsed_class(parsed_class: dict, index: int) -> str:
+    name_index = get_value_from_constant_pool(parsed_class, index)["name_index"]
+    return get_value_from_constant_pool(parsed_class, name_index)["bytes"]
+
 
 pp = pprint.PrettyPrinter(indent=2)
 def prettyprint(dict_var: dict) -> None:
@@ -78,17 +132,10 @@ def parse_attributes(f: BinaryIO, count: int):
         parsed_attribute = {}
         parsed_attribute["attribute_name_index"] = read_as(f, 2, "int")
         attribute_length = read_as(f, 4, "int")
-        parsed_attribute["info"] = read_as(f, attribute_length, "hex")
+        parsed_attribute["info"] = f.read(attribute_length)
+        #parsed_attribute["info"] = hex(int(read_as(f, attribute_length, "int")))
         parsed_attributes[attribute_index] = parsed_attribute
     return parsed_attributes
-
-def get_method_by_name(parsed_class: dict, name: str) -> list[dict]:
-    return [method for _, method in parsed_class["methods"].items()
-            if parsed_class["constant_pool"][method["name_index"] - 1]["bytes"] == name]
-
-def get_attributes_by_name(parsed_class, attributes, name: str):
-    return [attribute for _, attribute in attributes.items()
-            if parsed_class["constant_pool"][attribute["attribute_name_index"] - 1]["bytes"] == name]
 
 filename = "Example.class"
 def parse_class(filename: str) -> dict:
@@ -147,11 +194,70 @@ def parse_code(code: bytes):
         parsed_code["max_stack"] = read_as(f, 2, "int")
         parsed_code["max_locals"] = read_as(f, 2, "int")
         code_length = read_as(f, 4, "int")
-        parsed_code["code"] = f.read(code_length).hex()
+        parsed_code["code"] = f.read(code_length)
         exception_table_length = read_as(f, 2, "int")
         parsed_code["exception_table"] = read_as(f, exception_table_length, "hex")
-        assert None, "This is does not yet work"
     return parsed_code
+
+def exec_func(parsed_class: dict, code: bytes):
+    jvm_stack = []
+    with BytesIO(code) as f:
+        while f.tell() < len(code):
+            unparsed_opcode = int(read_as(f, 1, "int"))
+            try:
+                opcode = Opcode(unparsed_opcode)
+            except:
+                raise NotImplementedError(f"Invalid opcode {hex(unparsed_opcode)}")
+            match opcode:
+                case Opcode.getstatic:
+                    index = read_as(f, 2, "int")
+                    fieldref = get_value_from_constant_pool(parsed_class, index)
+                    class_name = get_name_from_parsed_class(parsed_class, fieldref["class_index"])
+                    member_name = get_name_from_parsed_class(parsed_class, fieldref["name_and_type_index"])
+                    # TODO implement parsing of system class
+                    if class_name == "java/lang/System" and member_name == "out":
+                        jvm_stack.append(JvmPrintStreamElement())
+                    else: 
+                        raise NotImplementedError(f"Member {class_name}/{member_name} not implemented")
+                case Opcode.ldc:
+                    index = read_as(f, 1, "int")
+                    jvm_stack.append(JvmConstantElement(get_value_from_constant_pool(parsed_class, index)))
+                case Opcode.invokevirtual:
+                    index = read_as(f, 2, "int")
+                    methodref = get_value_from_constant_pool(parsed_class, index)
+                    class_name = get_name_from_parsed_class(parsed_class, methodref["class_index"])
+                    member_name = get_name_from_parsed_class(parsed_class, methodref["name_and_type_index"])
+                    if class_name != "java/io/PrintStream" or member_name != "println":
+                        raise NotImplementedError(f"Member {class_name}.{member_name} not implemented")
+                    if len(jvm_stack) < 2:
+                        raise RuntimeError(f"Member {class_name}.{member_name} expected 2 arguments, not {len(jvm_stack)}") 
+                    val = None 
+                    act = None
+                    while len(jvm_stack) > 0:
+                        current_stack_element = jvm_stack.pop()
+                        match current_stack_element:
+                            case JvmConstantElement():
+                                val = current_stack_element.get_string_value(parsed_class)
+                            case JvmPrintStreamElement():
+                                act = print
+                            case JvmIntegerElement():
+                                val = current_stack_element.val
+                            case JvmReturnElement():
+                                print("return")
+                            case other:
+                                raise NotImplementedError(f"Stack element {type(current_stack_element)}")
+                        if val != None and act != None:
+                            act(val)
+                            act = None
+                            val = None
+                case Opcode.invokestatic:
+                    index = read_as(f, 2, "int") 
+                    print(get_value_from_constant_pool(parsed_class, index))
+                    raise NotImplementedError("TODO")
+                case Opcode.ret:
+                    return
+                case other:
+                    raise NotImplementedError(f"Unimplemented opcode: {opcode}")
 
 parsed_class = parse_class(filename)
 prettyprint(parsed_class)
@@ -162,6 +268,5 @@ assert len(main) == 1, "More than one main method"
 main_code = get_attributes_by_name(parsed_class, main["attribute_info"], "Code")
 assert len(main_code) == 1, "What?"
 [main_code] = main_code
-print(main_code)
-parsed_main_code = parse_code(main_code["info"].encode())
-print(parsed_main_code)
+parsed_main_code = parse_code(main_code["info"])
+exec_func(parsed_class, parsed_main_code["code"])
